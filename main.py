@@ -20,7 +20,6 @@ async def clear_list(list_type: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def main_page(request: Request):
-    # Визначаємо, чи заходить користувач з мобільного пристрою
     user_agent = request.headers.get("user-agent", "").lower()
     is_mobile = any(m in user_agent for m in ["iphone", "android", "blackberry", "ipod", "opera mini", "iemobile", "mobile"])
 
@@ -92,7 +91,7 @@ async def main_page(request: Request):
     </html>
     """
 
-    # HTML для комп'ютерів (повна панель зі списками, кнопками копіювання та захищеним очищенням)
+    # HTML для комп'ютерів (списки, копіювання, захищене очищення)
     desktop_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -177,7 +176,6 @@ async def main_page(request: Request):
                 const hashedInput = await sha256(enteredPin);
 
                 if (hashedInput === targetHash) {
-                    await fetch('/clear/' + type, { method: 'POST' зайдені });
                     await fetch('/clear/' + type, { method: 'POST' });
                     loadCodes();
                     alert("Список успішно очищено!");
@@ -193,10 +191,7 @@ async def main_page(request: Request):
     </html>
     """
 
-    if is_mobile:
-        return mobile_html
-    else:
-        return desktop_html
+    return mobile_html if is_mobile else desktop_html
 
 @app.post("/scan")
 async def scan_barcode(file: UploadFile = File(...), is_a6: bool = Form(False)):
