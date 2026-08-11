@@ -68,7 +68,7 @@ async def main_page(request: Request):
             h2 { margin-top: 0; font-size: 20px; text-align: center; }
             #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; }
             
-            .btn-torch { width: 100%; background: #f0ad4e; color: white; border: none; padding: 10px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 12px; display: none; }
+            .btn-torch { width: 100%; background: #f0ad4e; color: white; border: none; padding: 12px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 12px; display: none; }
             .btn-torch.active { background: #ec971f; }
 
             .last-code-box { background: var(--last-bg); padding: 12px; border-radius: 6px; margin-top: 15px; text-align: center; border: 2px dashed #0066cc; }
@@ -174,7 +174,7 @@ async def main_page(request: Request):
                         btn.innerText = '🔦 Увімкнути ліхтарик';
                     }
                 } catch (err) {
-                    alert("Ваш пристрій або браузер не підтримує керування ліхтариком через камеру.");
+                    alert("Цей пристрій або браузер не підтримує керування ліхтариком через камеру.");
                     torchOn = !torchOn;
                 }
             }
@@ -242,11 +242,8 @@ async def main_page(request: Request):
                     onScanSuccess
                 ).then(() => {
                     document.getElementById('status').innerText = "Наведіть камеру на штрихкод...";
-                    // Перевіряємо чи підтримується ліхтарик камерою
-                    const capabilities = html5QrCode.getRunningTrackCameraCapabilities();
-                    if (capabilities && capabilities.torch()) {
-                        document.getElementById('torchBtn').style.display = 'block';
-                    }
+                    // Робимо кнопку ліхтарика видимою одразу після успішного запуску камери
+                    document.getElementById('torchBtn').style.display = 'block';
                 }).catch(err => {
                     document.getElementById('status').style.color = "red";
                     document.getElementById('status').innerText = "Немає доступу до камери.";
