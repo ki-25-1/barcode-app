@@ -7,12 +7,13 @@ import io
 
 app = FastAPI()
 
-# База даних у пам'яті
+# База даних у пам'яті: тепер зберігаємо списки та історію з часом
 scanned_codes = {
     "regular": [],
     "a6": []
 }
 
+# Історія сканувань у форматі: {"code": "...", "type": "regular/a6", "time": "HH:MM:SS", "status": "new/duplicate"}
 scan_history = []
 
 @app.post("/clear/{list_type}/{pin}")
@@ -37,7 +38,7 @@ async def main_page(request: Request):
     user_agent = request.headers.get("user-agent", "").lower()
     is_mobile = any(m in user_agent for m in ["iphone", "android", "blackberry", "ipod", "opera mini", "iemobile", "mobile"])
 
-    # HTML для мобільних телефонів (з вибором камери)
+    # HTML для мобільних телефонів (з голосовим озвученням "Проскановано" / "Помилка")
     mobile_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -52,10 +53,6 @@ async def main_page(request: Request):
             .checkbox-label { font-size: 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 12px; font-weight: bold; }
             .checkbox-label input { width: 24px; height: 24px; }
             h2 { margin-top: 0; color: #333; font-size: 20px; text-align: center; }
-            
-            .camera-select-box { margin-bottom: 12px; }
-            .camera-select-box select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 16px; background: #fff; }
-            
             #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; }
             
             .last-code-box { background: #eef2f5; padding: 12px; border-radius: 6px; margin-top: 15px; text-align: center; border: 2px dashed #0066cc; }
@@ -72,13 +69,6 @@ async def main_page(request: Request):
                 <input type="checkbox" id="isA6"> 
                 <span>Цінник А6</span>
             </label>
-            
-            <div class="camera-select-box">
-                <select id="cameraSelect" style="display:none;" onchange="changeCamera()">
-                    <option value="">Виберіть камеру...</option>
-                </select>
-            </div>
-
             <div id="reader"></div>
             
             <div class="last-code-box">
@@ -86,16 +76,17 @@ async def main_page(request: Request):
                 <div id="lastCodeValue" class="last-code-value">—</div>
             </div>
             
-            <div id="status">Пошук камер...</div>
+            <div id="status">Наведіть камеру на штрихкод...</div>
         </div>
 
         <script>
+            // Функція голосового озвучення (Text-to-Speech)
             function speakText(text) {
                 if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel();
+                    window.speechSynthesis.cancel(); // Зупинити попередні висловлювання
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'uk-UA';
-                    utterance.rate = 1.1;
+                    utterance.rate = 1.1; // Трохи швидше для зручності
                     window.speechSynthesis.speak(utterance);
                 }
             }
@@ -121,9 +112,7 @@ async def main_page(request: Request):
                 } catch(e) {}
             }
 
-            let html5QrCode = null;
             let isScanningLocked = false;
-            let currentCameraId = null;
 
             async function onScanSuccess(decodedText, decodedResult) {
                 if (isScanningLocked) return;
@@ -177,76 +166,28 @@ async def main_page(request: Request):
                 }, 1800);
             }
 
-            async function startScanner(cameraId) {
-                if (!html5QrCode) {
-                    html5QrCode = new Html5Qrcode("reader");
-                }
-                
-                try {
-                    if (html5QrCode.isScanning) {
-                        await html5QrCode.stop();
-                    }
-                    
-                    await html5QrCode.start(
-                        cameraId ? { exact: cameraId } : { facingMode: "environment" },
-                        {
-                            fps: 15,
-                            qrbox: { width: 280, height: 160 }
-                        },
-                        onScanSuccess
-                    );
+            window.addEventListener('load', function () {
+                const html5QrCode = new Html5Qrcode("reader");
+                html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    {
+                        fps: 15,
+                        qrbox: { width: 280, height: 160 }
+                    },
+                    onScanSuccess
+                ).then(() => {
                     document.getElementById('status').innerText = "Наведіть камеру на штрихкод...";
-                } catch (err) {
+                }).catch(err => {
                     document.getElementById('status').style.color = "red";
-                    document.getElementById('status').innerText = "Не вдалося запустити обрану камеру.";
-                }
-            }
-
-            async function changeCamera() {
-                const select = document.getElementById('cameraSelect');
-                const selectedId = select.value;
-                if (selectedId) {
-                    await startScanner(selectedId);
-                }
-            }
-
-            window.addEventListener('load', async function () {
-                try {
-                    const cameras = await Html5Qrcode.getCameras();
-                    if (cameras && cameras.length > 0) {
-                        const select = document.getElementById('cameraSelect');
-                        select.innerHTML = '';
-                        
-                        cameras.forEach((cam, index) => {
-                            const option = document.createElement('option');
-                            option.value = cam.id;
-                            option.text = cam.label || `Камера ${index + 1}`;
-                            select.appendChild(option);
-                        });
-                        
-                        select.style.display = 'block';
-                        
-                        // Запускаємо першу знайдену тилову камеру або просто першу
-                        const backCamera = cameras.find(c => c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('задня') || c.label.toLowerCase().includes('environment'));
-                        const startId = backCamera ? backCamera.id : cameras[0].id;
-                        
-                        select.value = startId;
-                        await startScanner(startId);
-                    } else {
-                        // Якщо список камер не повернувся, пробуємо базовий запуск
-                        await startScanner(null);
-                    }
-                } catch (err) {
-                    // Якщо браузер заблокував сканування через старий метод або дозволи
-                    await startScanner(null);
-                }
+                    document.getElementById('status').innerText = "Немає доступу до камери.";
+                });
             });
         </script>
     </body>
     </html>
     """
 
-    # HTML для комп'ютерів (залишається незмінним)
+    # HTML для комп'ютерів (з вкладками: Списки та Історія сканувань)
     desktop_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -284,6 +225,7 @@ async def main_page(request: Request):
             <button class="tab-btn" onclick="switchTab('history', this)">Історія сканувань</button>
         </div>
 
+        <!-- Вкладка 1: Актуальні списки -->
         <div id="listsTab" class="tab-content active">
             <div class="flex-grid">
                 <div class="col card">
@@ -302,6 +244,7 @@ async def main_page(request: Request):
             </div>
         </div>
 
+        <!-- Вкладка 2: Історія сканувань -->
         <div id="historyTab" class="tab-content">
             <div class="card">
                 <h3>Повна хронологія сканувань</h3>
@@ -331,6 +274,7 @@ async def main_page(request: Request):
                     const data = await res.json();
                     cachedData = data;
                     
+                    // Рендер звичайних і А6 списків
                     const renderList = (list, elementId, countId) => {
                         document.getElementById(countId).innerText = list.length;
                         const container = document.getElementById(elementId);
@@ -349,6 +293,7 @@ async def main_page(request: Request):
                     renderList(data.regular, 'regularList', 'regCount');
                     renderList(data.a6, 'a6List', 'a6Count');
 
+                    // Рендер історії
                     const historyContainer = document.getElementById('historyList');
                     if (!data.history || data.history.length === 0) {
                         historyContainer.innerHTML = '<p style="color: #888; text-align: center;">Історія порожня</p>';
@@ -454,6 +399,7 @@ async def scan_text(data: dict):
             target_list.insert(0, barcode_data)
             status_type = "new"
             
+        # Додаємо запис на початок історії
         scan_history.insert(0, {
             "code": barcode_data,
             "type": target_key,
