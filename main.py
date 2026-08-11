@@ -7,13 +7,11 @@ import io
 
 app = FastAPI()
 
-# База даних у пам'яті: тепер зберігаємо списки та історію з часом
 scanned_codes = {
     "regular": [],
     "a6": []
 }
 
-# Історія сканувань у форматі: {"code": "...", "type": "regular/a6", "time": "HH:MM:SS", "status": "new/duplicate"}
 scan_history = []
 
 @app.post("/clear/{list_type}/{pin}")
@@ -38,7 +36,6 @@ async def main_page(request: Request):
     user_agent = request.headers.get("user-agent", "").lower()
     is_mobile = any(m in user_agent for m in ["iphone", "android", "blackberry", "ipod", "opera mini", "iemobile", "mobile"])
 
-    # HTML для мобільних телефонів (з голосовим озвученням "Проскановано" / "Помилка")
     mobile_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -69,6 +66,7 @@ async def main_page(request: Request):
                 <input type="checkbox" id="isA6"> 
                 <span>Цінник А6</span>
             </label>
+            
             <div id="reader"></div>
             
             <div class="last-code-box">
@@ -76,39 +74,56 @@ async def main_page(request: Request):
                 <div id="lastCodeValue" class="last-code-value">—</div>
             </div>
             
-            <div id="status">Наведіть камеру на штрихкод...</div>
+            <div id="status">Запуск камери...</div>
         </div>
 
         <script>
-            // Функція голосового озвучення (Text-to-Speech)
             function speakText(text) {
                 if ('speechSynthesis' in window) {
-                    window.speechSynthesis.cancel(); // Зупинити попередні висловлювання
+                    window.speechSynthesis.cancel();
                     const utterance = new SpeechSynthesisUtterance(text);
                     utterance.lang = 'uk-UA';
-                    utterance.rate = 1.1; // Трохи швидше для зручності
+                    utterance.rate = 1.1;
                     window.speechSynthesis.speak(utterance);
                 }
             }
 
-            function playSound(isSuccess) {
+            // Професійний звук та вібрація (як у ТЗД)
+            function playTsdSound(isSuccess) {
                 try {
                     const ctx = new (window.AudioContext || window.webkitAudioContext)();
                     const osc = ctx.createOscillator();
                     const gain = ctx.createGain();
+                    
                     osc.connect(gain);
                     gain.connect(ctx.destination);
                     
                     if (isSuccess) {
-                        osc.frequency.setValueAtTime(600, ctx.currentTime);
-                        osc.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.15);
+                        // Успіх: Короткий високий «Біп» + коротка вібрація
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(2000, ctx.currentTime); 
+                        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                        
+                        osc.start();
+                        osc.stop(ctx.currentTime + 0.08);
+
+                        if ("vibrate" in navigator) {
+                            navigator.vibrate(50);
+                        }
                     } else {
-                        osc.frequency.setValueAtTime(300, ctx.currentTime);
-                        osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.2);
+                        // Помилка/Дублікат: Басовий «бузмер» + подвійна вібрація
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(220, ctx.currentTime);
+                        osc.frequency.setValueAtTime(150, ctx.currentTime + 0.1);
+                        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                        
+                        osc.start();
+                        osc.stop(ctx.currentTime + 0.25);
+
+                        if ("vibrate" in navigator) {
+                            navigator.vibrate([100, 50, 100]);
+                        }
                     }
-                    
-                    osc.start();
-                    osc.stop(ctx.currentTime + 0.2);
                 } catch(e) {}
             }
 
@@ -137,25 +152,25 @@ async def main_page(request: Request):
 
                     if (result.success) {
                         if (result.is_duplicate) {
-                            playSound(false);
+                            playTsdSound(false);
                             speakText("Помилка");
                             status.style.color = "#d9534f";
                             status.innerText = "УВАГА: Повторне сканування!";
                         } else {
-                            playSound(true);
+                            playTsdSound(true);
                             speakText("Проскановано");
                             status.style.color = "green";
                             status.innerText = "Успішно додано!";
                             document.getElementById('isA6').checked = false; 
                         }
                     } else {
-                        playSound(false);
+                        playTsdSound(false);
                         speakText("Помилка");
                         status.style.color = "red";
                         status.innerText = "Помилка: " + result.error;
                     }
                 } catch (err) {
-                    playSound(false);
+                    playTsdSound(false);
                     speakText("Помилка");
                     status.style.color = "red";
                     status.innerText = "Помилка з'єднання.";
@@ -187,7 +202,6 @@ async def main_page(request: Request):
     </html>
     """
 
-    # HTML для комп'ютерів (з вкладками: Списки та Історія сканувань)
     desktop_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -225,7 +239,6 @@ async def main_page(request: Request):
             <button class="tab-btn" onclick="switchTab('history', this)">Історія сканувань</button>
         </div>
 
-        <!-- Вкладка 1: Актуальні списки -->
         <div id="listsTab" class="tab-content active">
             <div class="flex-grid">
                 <div class="col card">
@@ -244,7 +257,6 @@ async def main_page(request: Request):
             </div>
         </div>
 
-        <!-- Вкладка 2: Історія сканувань -->
         <div id="historyTab" class="tab-content">
             <div class="card">
                 <h3>Повна хронологія сканувань</h3>
@@ -274,7 +286,6 @@ async def main_page(request: Request):
                     const data = await res.json();
                     cachedData = data;
                     
-                    // Рендер звичайних і А6 списків
                     const renderList = (list, elementId, countId) => {
                         document.getElementById(countId).innerText = list.length;
                         const container = document.getElementById(elementId);
@@ -293,7 +304,6 @@ async def main_page(request: Request):
                     renderList(data.regular, 'regularList', 'regCount');
                     renderList(data.a6, 'a6List', 'a6Count');
 
-                    // Рендер історії
                     const historyContainer = document.getElementById('historyList');
                     if (!data.history || data.history.length === 0) {
                         historyContainer.innerHTML = '<p style="color: #888; text-align: center;">Історія порожня</p>';
@@ -399,7 +409,6 @@ async def scan_text(data: dict):
             target_list.insert(0, barcode_data)
             status_type = "new"
             
-        # Додаємо запис на початок історії
         scan_history.insert(0, {
             "code": barcode_data,
             "type": target_key,
