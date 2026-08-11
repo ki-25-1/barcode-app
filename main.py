@@ -12,8 +12,11 @@ scanned_codes = {
     "a6": []
 }
 
-@app.post("/clear/{list_type}")
-async def clear_list(list_type: str):
+@app.post("/clear/{list_type}/{pin}")
+async def clear_list(list_type: str, pin: str):
+    if pin != "5141":
+        return {"success": False, "error": "Невірний пін-код"}
+    
     if list_type in scanned_codes:
         scanned_codes[list_type] = []
     return {"success": True}
@@ -23,7 +26,7 @@ async def main_page(request: Request):
     user_agent = request.headers.get("user-agent", "").lower()
     is_mobile = any(m in user_agent for m in ["iphone", "android", "blackberry", "ipod", "opera mini", "iemobile", "mobile"])
 
-    # HTML для мобільних телефонів (тільки форма сканування)
+    # HTML для мобільних телефонів (з автоматичним скиданням прапорця)
     mobile_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -64,10 +67,10 @@ async def main_page(request: Request):
                 
                 const formData = new FormData();
                 const fileInput = document.getElementById('photoInput');
-                const isA6 = document.getElementById('isA6').checked;
+                const isA6Checkbox = document.getElementById('isA6');
                 
                 formData.append('file', fileInput.files[0]);
-                formData.append('is_a6', isA6);
+                formData.append('is_a6', isA6Checkbox.checked);
                 
                 try {
                     const response = await fetch('/scan', { method: 'POST', body: formData });
@@ -77,6 +80,7 @@ async def main_page(request: Request):
                         status.style.color = "green";
                         status.innerText = "Успішно додано: " + result.code;
                         fileInput.value = "";
+                        isA6Checkbox.checked = false; // Автоматично прибираємо прапорець А6
                     } else {
                         status.style.color = "red";
                         status.innerText = "Помилка: " + result.error;
@@ -91,7 +95,7 @@ async def main_page(request: Request):
     </html>
     """
 
-    # HTML для комп'ютерів (списки, копіювання, захищене очищення)
+    # HTML для комп'ютерів
     desktop_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -161,22 +165,14 @@ async def main_page(request: Request):
                 alert("Скопійовано в буфер: " + text);
             }
 
-            async function sha256(message) {
-                const msgBuffer = new TextEncoder().encode(message);
-                const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-                const hashArray = Array.from(new Uint8Array(hashBuffer));
-                return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            }
-
             async function clearList(type) {
-                const enteredPin = prompt("Введіть захищений PIN-код для очищення списку:");
+                const enteredPin = prompt("Введіть PIN-код для очищення списку:");
                 if (!enteredPin) return;
 
-                const targetHash = "216c561b36997d9e4ea20f86641215bb4b87cbba86b4fc487eec8d9cfb87e2b6";
-                const hashedInput = await sha256(enteredPin);
+                const response = await fetch(`/clear/${type}/${enteredPin}`, { method: 'POST' });
+                const result = await response.json();
 
-                if (hashedInput === targetHash) {
-                    await fetch('/clear/' + type, { method: 'POST' });
+                if (result.success) {
                     loadCodes();
                     alert("Список успішно очищено!");
                 } else {
