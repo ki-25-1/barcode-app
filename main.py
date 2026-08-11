@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import HTMLResponse
 from PIL import Image
-from pyzbar.pyzbar import decode
+from zxingcpp import read_barcode
 import io
 
 app = FastAPI()
@@ -105,7 +105,6 @@ async def main_page():
                 alert("Скопійовано в буфер: " + text);
             }
 
-            // Функція для шифрування введеного PIN-коду (SHA-256)
             async function sha256(message) {
                 const msgBuffer = new TextEncoder().encode(message);
                 const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -115,9 +114,8 @@ async def main_page():
 
             async function clearList(type) {
                 const enteredPin = prompt("Введіть захищений PIN-код для очищення списку:");
-                if (!enteredPin) return; // Якщо натиснули "Скасувати"
+                if (!enteredPin) return;
 
-                // Зашифрований хенш від пін-коду '5141'
                 const targetHash = "216c561b36997d9e4ea20f86641215bb4b87cbba86b4fc487eec8d9cfb87e2b6";
                 const hashedInput = await sha256(enteredPin);
 
@@ -174,11 +172,12 @@ async def scan_barcode(file: UploadFile = File(...), is_a6: bool = Form(False)):
         contents = await file.read()
         image = Image.open(io.BytesIO(contents))
         
-        decoded = decode(image)
-        if not decoded:
+        # Розпізнавання штрихкоду через zxing-cpp
+        result = read_barcode(image)
+        if not result:
             return {"success": False, "error": "Штрихкод на фото не знайдено. Зробіть чіткіший знімок."}
         
-        barcode_data = decoded[0].data.decode('utf-8')
+        barcode_data = result.text
         
         if is_a6:
             scanned_codes["a6"].insert(0, barcode_data)
