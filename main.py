@@ -45,23 +45,46 @@ async def main_page(request: Request):
         <title>Живий сканер цінників</title>
         <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
         <style>
-            body { font-family: sans-serif; padding: 10px; background: #f4f6f8; max-width: 600px; margin: 0 auto; }
-            .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 15px; }
+            :root {
+                --bg-color: #f4f6f8;
+                --card-bg: #ffffff;
+                --text-color: #333333;
+                --border-color: #ccc;
+                --last-bg: #eef2f5;
+            }
+            [data-theme="dark"] {
+                --bg-color: #121212;
+                --card-bg: #1e1e1e;
+                --text-color: #e0e0e0;
+                --border-color: #444;
+                --last-bg: #2a2a2a;
+            }
+            body { font-family: sans-serif; padding: 10px; background: var(--bg-color); color: var(--text-color); max-width: 600px; margin: 0 auto; transition: background 0.3s, color 0.3s; }
+            .card { background: var(--card-bg); padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 15px; transition: background 0.3s; }
+            .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+            .theme-btn { background: none; border: 1px solid var(--border-color); color: var(--text-color); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
             .checkbox-label { font-size: 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 12px; font-weight: bold; }
             .checkbox-label input { width: 24px; height: 24px; }
-            h2 { margin-top: 0; color: #333; font-size: 20px; text-align: center; }
-            #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; }
+            h2 { margin-top: 0; font-size: 20px; text-align: center; }
+            #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; }
             
-            .last-code-box { background: #eef2f5; padding: 12px; border-radius: 6px; margin-top: 15px; text-align: center; border: 2px dashed #0066cc; }
-            .last-code-title { font-size: 14px; color: #666; margin-bottom: 4px; }
+            .btn-torch { width: 100%; background: #f0ad4e; color: white; border: none; padding: 10px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 12px; display: none; }
+            .btn-torch.active { background: #ec971f; }
+
+            .last-code-box { background: var(--last-bg); padding: 12px; border-radius: 6px; margin-top: 15px; text-align: center; border: 2px dashed #0066cc; }
+            .last-code-title { font-size: 14px; opacity: 0.8; margin-bottom: 4px; }
             .last-code-value { font-size: 22px; font-weight: bold; color: #0066cc; word-break: break-all; }
             
             #status { margin-top: 10px; font-weight: bold; font-size: 16px; text-align: center; min-height: 25px; }
         </style>
     </head>
-    <body>
+    <body data-theme="light">
         <div class="card">
-            <h2>Сканування цінника</h2>
+            <div class="top-bar">
+                <h2>Сканування цінника</h2>
+                <button class="theme-btn" onclick="toggleTheme()">🌙 Тема</button>
+            </div>
+            
             <label class="checkbox-label">
                 <input type="checkbox" id="isA6"> 
                 <span>Цінник А6</span>
@@ -69,6 +92,8 @@ async def main_page(request: Request):
             
             <div id="reader"></div>
             
+            <button id="torchBtn" class="btn-torch" onclick="toggleTorch()">🔦 Увімкнути ліхтарик</button>
+
             <div class="last-code-box">
                 <div class="last-code-title">Останній відсканований код:</div>
                 <div id="lastCodeValue" class="last-code-value">—</div>
@@ -78,6 +103,17 @@ async def main_page(request: Request):
         </div>
 
         <script>
+            let currentTheme = localStorage.getItem('theme') || 'light';
+            document.body.setAttribute('data-theme', currentTheme);
+            document.querySelector('.theme-btn').innerText = currentTheme === 'dark' ? '☀️ Тема' : '🌙 Тема';
+
+            function toggleTheme() {
+                currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+                document.body.setAttribute('data-theme', currentTheme);
+                localStorage.setItem('theme', currentTheme);
+                document.querySelector('.theme-btn').innerText = currentTheme === 'dark' ? '☀️ Тема' : '🌙 Тема';
+            }
+
             function speakText(text) {
                 if ('speechSynthesis' in window) {
                     window.speechSynthesis.cancel();
@@ -88,7 +124,6 @@ async def main_page(request: Request):
                 }
             }
 
-            // Професійний звук та вібрація (як у ТЗД)
             function playTsdSound(isSuccess) {
                 try {
                     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -99,35 +134,50 @@ async def main_page(request: Request):
                     gain.connect(ctx.destination);
                     
                     if (isSuccess) {
-                        // Успіх: Короткий високий «Біп» + коротка вібрація
                         osc.type = 'sine';
                         osc.frequency.setValueAtTime(2000, ctx.currentTime); 
                         gain.gain.setValueAtTime(0.15, ctx.currentTime);
-                        
                         osc.start();
                         osc.stop(ctx.currentTime + 0.08);
 
-                        if ("vibrate" in navigator) {
-                            navigator.vibrate(50);
-                        }
+                        if ("vibrate" in navigator) navigator.vibrate(50);
                     } else {
-                        // Помилка/Дублікат: Басовий «бузмер» + подвійна вібрація
                         osc.type = 'sawtooth';
                         osc.frequency.setValueAtTime(220, ctx.currentTime);
                         osc.frequency.setValueAtTime(150, ctx.currentTime + 0.1);
                         gain.gain.setValueAtTime(0.2, ctx.currentTime);
-                        
                         osc.start();
                         osc.stop(ctx.currentTime + 0.25);
 
-                        if ("vibrate" in navigator) {
-                            navigator.vibrate([100, 50, 100]);
-                        }
+                        if ("vibrate" in navigator) navigator.vibrate([100, 50, 100]);
                     }
                 } catch(e) {}
             }
 
+            let html5QrCode = null;
             let isScanningLocked = false;
+            let torchOn = false;
+
+            async function toggleTorch() {
+                if (!html5QrCode) return;
+                try {
+                    torchOn = !torchOn;
+                    await html5QrCode.applyVideoConstraints({
+                        advanced: [{ torch: torchOn }]
+                    });
+                    const btn = document.getElementById('torchBtn');
+                    if (torchOn) {
+                        btn.classList.add('active');
+                        btn.innerText = '🔦 Вимкнути ліхтарик';
+                    } else {
+                        btn.classList.remove('active');
+                        btn.innerText = '🔦 Увімкнути ліхтарик';
+                    }
+                } catch (err) {
+                    alert("Ваш пристрій або браузер не підтримує керування ліхтариком через камеру.");
+                    torchOn = !torchOn;
+                }
+            }
 
             async function onScanSuccess(decodedText, decodedResult) {
                 if (isScanningLocked) return;
@@ -182,7 +232,7 @@ async def main_page(request: Request):
             }
 
             window.addEventListener('load', function () {
-                const html5QrCode = new Html5Qrcode("reader");
+                html5QrCode = new Html5Qrcode("reader");
                 html5QrCode.start(
                     { facingMode: "environment" }, 
                     {
@@ -192,6 +242,11 @@ async def main_page(request: Request):
                     onScanSuccess
                 ).then(() => {
                     document.getElementById('status').innerText = "Наведіть камеру на штрихкод...";
+                    // Перевіряємо чи підтримується ліхтарик камерою
+                    const capabilities = html5QrCode.getRunningTrackCameraCapabilities();
+                    if (capabilities && capabilities.torch()) {
+                        document.getElementById('torchBtn').style.display = 'block';
+                    }
                 }).catch(err => {
                     document.getElementById('status').style.color = "red";
                     document.getElementById('status').innerText = "Немає доступу до камери.";
@@ -210,8 +265,24 @@ async def main_page(request: Request):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Панель керування штрихкодами</title>
         <style>
-            body { font-family: sans-serif; padding: 20px; background: #f4f6f8; max-width: 1200px; margin: 0 auto; }
-            .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            :root {
+                --bg-color: #f4f6f8;
+                --card-bg: #ffffff;
+                --text-color: #333333;
+                --border-color: #eee;
+                --code-bg: #eef2f5;
+            }
+            [data-theme="dark"] {
+                --bg-color: #121212;
+                --card-bg: #1e1e1e;
+                --text-color: #e0e0e0;
+                --border-color: #333;
+                --code-bg: #2a2a2a;
+            }
+            body { font-family: sans-serif; padding: 20px; background: var(--bg-color); color: var(--text-color); max-width: 1200px; margin: 0 auto; transition: background 0.3s, color 0.3s; }
+            .card { background: var(--card-bg); padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: background 0.3s; }
+            .header-flex { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+            .theme-btn { padding: 8px 16px; font-size: 16px; font-weight: bold; cursor: pointer; background: transparent; border: 1px solid var(--text-color); color: var(--text-color); border-radius: 6px; }
             .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
             .tab-btn { padding: 12px 24px; font-size: 18px; font-weight: bold; cursor: pointer; background: #ddd; border: none; border-radius: 6px; }
             .tab-btn.active { background: #0066cc; color: white; }
@@ -220,19 +291,22 @@ async def main_page(request: Request):
             
             .flex-grid { display: flex; gap: 20px; flex-wrap: wrap; }
             .col { flex: 1; min-width: 350px; }
-            .item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; font-size: 18px; }
-            .history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee; font-size: 16px; }
+            .item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 18px; }
+            .history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 16px; }
             button { cursor: pointer; padding: 10px 16px; border-radius: 6px; border: none; background: #0066cc; color: white; font-weight: bold; font-size: 16px; }
             .btn-clear { background: #ff4d4d; margin-bottom: 10px; width: 100%; }
             .btn-download { background: #17a2b8; margin-bottom: 10px; width: 100%; }
             .btn-copy { background: #28a745; padding: 6px 12px; font-size: 14px; }
-            code { background: #eef2f5; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+            code { background: var(--code-bg); padding: 4px 8px; border-radius: 4px; font-weight: bold; color: var(--text-color); }
             .badge-dup { background: #ffdddd; color: #d9534f; padding: 3px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; }
             .badge-new { background: #d4edda; color: #28a745; padding: 3px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; }
         </style>
     </head>
-    <body>
-        <h1>Панель керування штрихкодами</h1>
+    <body data-theme="light">
+        <div class="header-flex">
+            <h1>Панель керування штрихкодами</h1>
+            <button class="theme-btn" onclick="toggleTheme()">🌙 Темна тема</button>
+        </div>
 
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('lists', this)">Актуальні списки</button>
@@ -266,6 +340,17 @@ async def main_page(request: Request):
         </div>
 
         <script>
+            let currentTheme = localStorage.getItem('theme') || 'light';
+            document.body.setAttribute('data-theme', currentTheme);
+            document.querySelector('.theme-btn').innerText = currentTheme === 'dark' ? '☀️ Світла тема' : '🌙 Темна тема';
+
+            function toggleTheme() {
+                currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+                document.body.setAttribute('data-theme', currentTheme);
+                localStorage.setItem('theme', currentTheme);
+                document.querySelector('.theme-btn').innerText = currentTheme === 'dark' ? '☀️ Світла тема' : '🌙 Темна тема';
+            }
+
             function switchTab(tabName, btn) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -311,9 +396,9 @@ async def main_page(request: Request):
                         historyContainer.innerHTML = data.history.map(h => `
                             <div class="history-item">
                                 <div>
-                                    <span style="color: #666; font-weight: bold; margin-right: 10px;">[${h.time}]</span>
+                                    <span style="opacity: 0.7; font-weight: bold; margin-right: 10px;">[${h.time}]</span>
                                     <code>${h.code}</code>
-                                    <span style="font-size: 13px; color: #555; margin-left: 10px;">(${h.type === 'a6' ? 'А6' : 'Звичайний'})</span>
+                                    <span style="font-size: 13px; opacity: 0.8; margin-left: 10px;">(${h.type === 'a6' ? 'А6' : 'Звичайний'})</span>
                                 </div>
                                 <div>
                                     ${h.status === 'duplicate' ? '<span class="badge-dup">Повтор</span>' : '<span class="badge-new">Новий</span>'}
