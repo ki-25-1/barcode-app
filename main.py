@@ -26,7 +26,7 @@ async def main_page(request: Request):
     user_agent = request.headers.get("user-agent", "").lower()
     is_mobile = any(m in user_agent for m in ["iphone", "android", "blackberry", "ipod", "opera mini", "iemobile", "mobile"])
 
-    # HTML для мобільних телефонів (з живим скануванням через Html5-Qrcode)
+    # HTML для мобільних телефонів (з виправленим відображенням камери)
     mobile_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -34,16 +34,17 @@ async def main_page(request: Request):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Живий сканер цінників</title>
-        <!-- Підключаємо бібліотеку для сканування з камери -->
         <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
         <style>
-            body { font-family: sans-serif; padding: 15px; background: #f4f6f8; max-width: 600px; margin: 0 auto; }
+            body { font-family: sans-serif; padding: 10px; background: #f4f6f8; max-width: 600px; margin: 0 auto; }
             .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 15px; }
-            .checkbox-label { font-size: 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 15px; font-weight: bold; }
+            .checkbox-label { font-size: 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 12px; font-weight: bold; }
             .checkbox-label input { width: 24px; height: 24px; }
             h2 { margin-top: 0; color: #333; font-size: 20px; text-align: center; }
-            #reader { width: 100%; border-radius: 8px; overflow: hidden; }
+            #reader { width: 100%; min-height: 300px; border-radius: 8px; overflow: hidden; background: #000; }
             #status { margin-top: 15px; font-weight: bold; font-size: 18px; text-align: center; min-height: 30px; }
+            /* Ховаємо зайві елементи бібліотеки для зручності */
+            #reader__dashboard_section_csr button { padding: 10px 15px; background: #0066cc; color: white; border: none; border-radius: 5px; font-size: 16px; font-weight: bold; }
         </style>
     </head>
     <body>
@@ -53,9 +54,8 @@ async def main_page(request: Request):
                 <input type="checkbox" id="isA6"> 
                 <span>Цінник А6</span>
             </label>
-            <!-- Віконце для камери -->
             <div id="reader"></div>
-            <div id="status">Наведіть камеру на штрихкод...</div>
+            <div id="status">Запуск камери...</div>
         </div>
 
         <script>
@@ -84,13 +84,13 @@ async def main_page(request: Request):
 
             async function onScanSuccess(decodedText, decodedResult) {
                 if (isScanningLocked) return;
-                isScanningLocked = true; // Блокуємо повторне зчитування на секунду, щоб не дублювати
+                isScanningLocked = true;
 
                 const status = document.getElementById('status');
                 const isA6 = document.getElementById('isA6').checked;
                 
                 status.style.color = "#0066cc";
-                status.innerText = "Обробка: " + decodedText;
+                status.innerText = "Зчитано: " + decodedText;
 
                 try {
                     const response = await fetch('/api-scan-text', {
@@ -103,8 +103,8 @@ async def main_page(request: Request):
                     if (result.success) {
                         playSound(true);
                         status.style.color = "green";
-                        status.innerText = result.message || ("Успішно: " + decodedText);
-                        document.getElementById('isA6').checked = false; // Авто-скидання прапорця А6
+                        status.innerText = result.message || ("Успішно додано: " + decodedText);
+                        document.getElementById('isA6').checked = false; 
                     } else {
                         playSound(false);
                         status.style.color = "red";
@@ -116,32 +116,35 @@ async def main_page(request: Request):
                     status.innerText = "Помилка з'єднання.";
                 }
 
-                // Знімаємо блок через 1.5 секунди для наступного штрихкоду
                 setTimeout(() => {
                     isScanningLocked = false;
                     status.innerText = "Наведіть камеру на наступний штрихкод...";
                 }, 1500);
             }
 
-            // Запускаємо сканер камери
-            const html5QrCode = new Html5Qrcode("reader");
-            html5QrCode.start(
-                { facingMode: "environment" }, // Використовувати задню камеру
-                {
-                    fps: 10,    ,
-                    qrbox: { width: 250, height: 150 }
-                },
-                onScanSuccess
-            ).catch(err => {
-                document.getElementById('status').style.color = "red";
-                document.getElementById('status').innerText = "Помилка доступу до камери!";
+            // Запускаємо сканер після завантаження сторінки
+            window.addEventListener('load', function () {
+                const html5QrCode = new Html5Qrcode("reader");
+                html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    {
+                        fps: 15,
+                        qrbox: { width: 280, height: 160 }
+                    },
+                    onScanSuccess
+                ).then(() => {
+                    document.getElementById('status').innerText = "Наведіть камеру на штрихкод...";
+                }).catch(err => {
+                    document.getElementById('status').style.color = "red";
+                    document.getElementById('status').innerText = "Немає доступу до камери. Дозвольте доступ у браузері.";
+                });
             });
         </script>
     </body>
     </html>
     """
 
-    # HTML для комп'ютерів (залишається незмінним: списки, копіювання, експорт, очищення)
+    # HTML для комп'ютерів
     desktop_html = """
     <!DOCTYPE html>
     <html lang="uk">
@@ -257,7 +260,6 @@ async def main_page(request: Request):
 
     return mobile_html if is_mobile else desktop_html
 
-# Маршрут для прийому текстового штрихкоду напряму з живої камери
 @app.post("/api-scan-text")
 async def scan_text(data: dict):
     try:
@@ -269,7 +271,6 @@ async def scan_text(data: dict):
             
         target_list = scanned_codes["a6"] if is_a6 else scanned_codes["regular"]
         
-        # Захист від дублікатів (перенесення на початок)
         if barcode_data in target_list:
             target_list.remove(barcode_data)
             target_list.insert(0, barcode_data)
@@ -280,7 +281,6 @@ async def scan_text(data: dict):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-# Залишаємо і старий маршрут /scan на випадок сумісності
 @app.post("/scan")
 async def scan_barcode(file: UploadFile = File(...), is_a6: bool = Form(False)):
     try:
