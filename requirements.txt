@@ -1,5 +1,5 @@
 fastapi
 uvicorn
 pillow
-pyzbar
+zxing-cpp
 python-multipart
