@@ -55,7 +55,7 @@ async def main_page(request: Request):
     <html lang="uk">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title>Живий сканер цінників</title>
         <link rel="manifest" href="/manifest.json">
         <meta name="theme-color" content="#0066cc">
@@ -186,7 +186,7 @@ async def main_page(request: Request):
             let currentZoom = 1;
             let minZoom = 1;
             let maxZoom = 5;
-            let zoomStep = 0.1;
+            let zoomStep = 0.15;
             let initialPinchDistance = null;
 
             async function updateZoom(newZoom) {
@@ -357,8 +357,9 @@ async def main_page(request: Request):
                             e.touches[0].clientX - e.touches[1].clientX,
                             e.touches[0].clientY - e.touches[1].clientY
                         );
+                        e.preventDefault();
                     }
-                });
+                }, { passive: false });
 
                 readerElement.addEventListener('touchmove', (e) => {
                     if (e.touches.length === 2 && initialPinchDistance !== null) {
@@ -367,13 +368,14 @@ async def main_page(request: Request):
                             e.touches[0].clientY - e.touches[1].clientY
                         );
                         const diff = currentDistance - initialPinchDistance;
-                        if (Math.abs(diff > 10)) {
+                        if (Math.abs(diff) > 8) {
                             const newZoom = currentZoom + (diff > 0 ? zoomStep : -zoomStep);
                             updateZoom(newZoom);
                             initialPinchDistance = currentDistance;
                         }
+                        e.preventDefault();
                     }
-                });
+                }, { passive: false });
 
                 readerElement.addEventListener('touchend', (e) => {
                     if (e.touches.length < 2) {
