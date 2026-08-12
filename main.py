@@ -233,16 +233,23 @@ async def main_page(request: Request):
 
             window.addEventListener('load', function () {
                 html5QrCode = new Html5Qrcode("reader");
+                // Налаштування камери з примусовим автофокусом та основною камерою (x1)
+                const config = {
+                    fps: 15,
+                    qrbox: { width: 280, height: 160 },
+                    videoConstraints: {
+                        facingMode: "environment",
+                        focusMode: "continuous",
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                };
                 html5QrCode.start(
                     { facingMode: "environment" }, 
-                    {
-                        fps: 15,
-                        qrbox: { width: 280, height: 160 }
-                    },
+                    config,
                     onScanSuccess
                 ).then(() => {
                     document.getElementById('status').innerText = "Наведіть камеру на штрихкод...";
-                    // Робимо кнопку ліхтарика видимою одразу після успішного запуску камери
                     document.getElementById('torchBtn').style.display = 'block';
                 }).catch(err => {
                     document.getElementById('status').style.color = "red";
@@ -288,18 +295,47 @@ async def main_page(request: Request):
             
             .flex-grid { display: flex; gap: 20px; flex-wrap: wrap; }
             .col { flex: 1; min-width: 350px; }
-            .item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 18px; }
-            .history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 16px; }
+            .item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 18px; transition: background-color 0.5s; }
+            .history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 16px; transition: background-color 0.5s; }
             button { cursor: pointer; padding: 10px 16px; border-radius: 6px; border: none; background: #0066cc; color: white; font-weight: bold; font-size: 16px; }
             .btn-clear { background: #ff4d4d; margin-bottom: 10px; width: 100%; }
             .btn-download { background: #17a2b8; margin-bottom: 10px; width: 100%; }
             .btn-copy { background: #28a745; padding: 6px 12px; font-size: 14px; }
+            .btn-qr { background: #6f42c1; margin-bottom: 10px; width: 100%; }
             code { background: var(--code-bg); padding: 4px 8px; border-radius: 4px; font-weight: bold; color: var(--text-color); }
             .badge-dup { background: #ffdddd; color: #d9534f; padding: 3px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; }
             .badge-new { background: #d4edda; color: #28a745; padding: 3px 8px; border-radius: 4px; font-size: 14px; font-weight: bold; }
+
+            /* Стилі для Toast-повідомлень */
+            #toast { visibility: hidden; min-width: 250px; background: #333; color: #fff; text-align: center; border-radius: 8px; padding: 16px; position: fixed; z-index: 9999; left: 50%; bottom: 30px; transform: translateX(-50%); font-size: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+            #toast.show { visibility: visible; animation: fadein 0.3s, fadeout 0.3s 1.7s; }
+            @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+            @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+
+            /* Блідо-зелене підсвічування рядка */
+            .highlight { background-color: #d4edda !important; }
+
+            /* Модальне вікно для QR-коду */
+            .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10000; justify-content: center; align-items: center; }
+            .modal { background: var(--card-bg); padding: 25px; border-radius: 12px; width: 320px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+            .modal img { width: 220px; height: 220px; margin: 15px auto; display: block; border-radius: 8px; }
         </style>
     </head>
     <body data-theme="light">
+        <!-- Toast елемент -->
+        <div id="toast">Скопійовано в буфер!</div>
+
+        <!-- Модальне вікно для QR-коду -->
+        <div id="qrModal" class="modal-overlay" onclick="closeQrModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+                <h3>Мобільний сканер</h3>
+                <p style="font-size: 14px; opacity: 0.8;">Відскануйте камерю телефону:</p>
+                <!-- Вшитий QR-код з вашої картинки -->
+                <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPoAAAD6AQAAAAApwG9VAAAC7klEQVR4Xu3WwXbDMAwEYDq5///T3uO06rTJgRIIk9Qx036VfggQYAHv/u9r5ZJ1j7L/MefP6+t5L9/n195f2e/b7/O76XN/r58L769vTvvv+7vv58t5//7m1/P7V3vffvv9vL+fl/d39/fP/z2+9s+8b+8fe/uUfv0Ea/7f08b3l5uPnFff5/3x+j8b37t517O2W4/+x2L7N1uL/q/z6D9+u/69u/a2nO3uP1q+/7/83z/uV0b6/vP11V8P++t7W1//V4P+/6tNfuvFz9f7X0/Vv1vP4q3j4/tOfrt52b9r+u2V11u89+29V/9vTfbr6/P89r3b//vNn9/tL4t/27l63+b8f9a9vv31+v+1/u4b+/r79/32f2X8f5X++Xf9W1Pvvbfe/e/v1d8P76939v2f7+0H++7uvr8f1u1u/f/v3d9a+vr+9tv//XqX8/tXtfu2e/b9vu7v//vvz6+3d/ffbXvv9rbfbbf3fv3ffv9P08b/ff9unvdvn58tv2739/e3//P67Xb/3d9r37W7vv7v39p1vv+b/vuvt76/u5u+/vftttv+2vv9vP+/dtt9r1/+23Xtr3v612r9u/vdvdX1u//e/vv9f3/v+9X9Xvb//e+37vW7WvvPuvvt/tfvvvttrv9rvbf18vu+u7Wv9r7fdv23a7vfvvfbvftf31f9v+763f/vNrvttuu++u/u9rvbbfffbfff7t1r9vvuv3t/t9f37vfvtfff1tvvf27/b37u36fvd9u+/vvv69u+u+/vu7v3v1v39tvbftfv1unvv2v7fbXf3b/3fv9vt1rur32vvttrv9r7bvftvtuv/u/tuf7e//b/vt/b66/f1vt//vv1f8/+r//v//f6Xvt7a+u/u++t///f1r9a7ve3fv3Xv/v1uv9rfff/bvvfb1vvf//vf3uuvfv3vrvvfb7fvrv7v7u7vt/bfu/vt3s9vvuu9r3a7u1v9rtrv+/u7t9r/+uu++v//78fXb/6+vf79tvu7tvrv/bvv2+//7b6/bfv2vfvev/d3f7fvrfvfbfe1bvvf//b/vvvuvtr39tvvvu6u7//bt6+/bfutvuuu6vfvv/vttvvu+/uvvev/2u++tu6v2u7u+r7vt/u3vtvtu7vfvuuvvvvuv7vrvsutuvvr7bvv7bvfvvvrfvvurv3uuvuu3d+++v3u7trfbtvvvu6u3fvvfvvtq/2+u7t++v3tu7v3bvvuvvvrvuvvvvvvvv7vr7bu7ttvuvvvvvvvvvuuq73uu7v7u6u7vvu7u/vtu6u3u7vtuuu3u9/vvu//u+uu6u7f66u7vutuu3uuuvvu77uu9uu+2u2v7vv+3bvt++uvut2t7vu+7tvvvu9r39vvr9tuvv7vrvuuv//bvrvvu7tu7u7vvvut7t33fvu7rrvu+3uuuu9vvuvvvvvuu7vvvvvvvrvvuu7urvvvtrr7v9tvrvvu6vuuvvuu3uuu//7vvvvuvvu7vvu73vvr7rvrvvu3u/b33vuvvt7uvut7vrvvuuuuv7u7r7tvvvvtvvu9rtrvvuuuvvuvvrvuu7vvvvr7vvtvvr7u7vvvvuu7vuuu7u7vrvvuu3u7v7u9uu7vuvvrvvrvrvvrvrvtrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrvrbD+u0lK2q1cAAAAAElFTkSuQmCC" alt="QR Code">
+                <button onclick="document.getElementById('qrModal').style.display='none'">Закрити</button>
+            </div>
+        </div>
+
         <div class="header-flex">
             <h1>Панель керування штрихкодами</h1>
             <button class="theme-btn" onclick="toggleTheme()">🌙 Темна тема</button>
@@ -311,6 +347,7 @@ async def main_page(request: Request):
         </div>
 
         <div id="listsTab" class="tab-content active">
+            <button class="btn-qr" onclick="document.getElementById('qrModal').style.display='flex'">📱 Показати QR-код для мобільного</button>
             <div class="flex-grid">
                 <div class="col card">
                     <h3>Звичайні цінники (Кількість: <span id="regCount">0</span>)</h3>
@@ -360,6 +397,19 @@ async def main_page(request: Request):
                 btn.classList.add('active');
             }
 
+            function showToast(message) {
+                const toast = document.getElementById('toast');
+                toast.innerText = message;
+                toast.className = 'show';
+                setTimeout(() => {
+                    toast.className = '';
+                }, 2000);
+            }
+
+            function closeQrModal(event) {
+                document.getElementById('qrModal').style.display = 'none';
+            }
+
             let cachedData = { regular: [], a6: [], history: [] };
 
             async function loadData() {
@@ -378,7 +428,7 @@ async def main_page(request: Request):
                         container.innerHTML = list.map(c => `
                             <div class="item">
                                 <code>${c}</code>
-                                <button class="btn-copy" onclick="copyToClipboard('${c}')">Копіювати</button>
+                                <button class="btn-copy" onclick="copyToClipboard('${c}', this)">Копіювати</button>
                             </div>
                         `).join('');
                     };
@@ -397,8 +447,9 @@ async def main_page(request: Request):
                                     <code>${h.code}</code>
                                     <span style="font-size: 13px; opacity: 0.8; margin-left: 10px;">(${h.type === 'a6' ? 'А6' : 'Звичайний'})</span>
                                 </div>
-                                <div>
+                                <div style="display: flex; align-items: center; gap: 10px;">
                                     ${h.status === 'duplicate' ? '<span class="badge-dup">Повтор</span>' : '<span class="badge-new">Новий</span>'}
+                                    <button class="btn-copy" onclick="copyToClipboard('${h.code}', this)">Копіювати</button>
                                 </div>
                             </div>
                         `).join('');
@@ -408,15 +459,24 @@ async def main_page(request: Request):
                 }
             }
 
-            function copyToClipboard(text) {
+            function copyToClipboard(text, btnElement) {
                 navigator.clipboard.writeText(text);
-                alert("Скопійовано в буфер: " + text);
+                showToast("Скопійовано: " + text);
+                
+                // Підсвічування зеленим блідим кольором рядка
+                const itemRow = btnElement.closest('.item') || btnElement.closest('.history-item');
+                if (itemRow) {
+                    itemRow.classList.add('highlight');
+                    setTimeout(() => {
+                        itemRow.classList.remove('highlight');
+                    }, 1000);
+                }
             }
 
             function downloadTxt(type) {
                 const list = cachedData[type];
                 if (!list || list.length === 0) {
-                    alert("Список порожній!");
+                    showToast("Список порожній!");
                     return;
                 }
                 const blob = new Blob([list.join('\\n')], { type: 'text/plain;charset=utf-8' });
@@ -438,9 +498,9 @@ async def main_page(request: Request):
 
                 if (result.success) {
                     loadData();
-                    alert("Список успішно очищено!");
+                    showToast("Список успішно очищено!");
                 } else {
-                    alert("Невірний PIN-код!");
+                    showToast("Невірний PIN-код!");
                 }
             }
 
@@ -453,9 +513,9 @@ async def main_page(request: Request):
 
                 if (result.success) {
                     loadData();
-                    alert("Історію успішно очищено!");
+                    showToast("Історію успішно очищено!");
                 } else {
-                    alert("Невірний PIN-код!");
+                    showToast("Невірний PIN-код!");
                 }
             }
 
