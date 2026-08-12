@@ -84,7 +84,7 @@ async def main_page(request: Request):
             h2 { margin-top: 0; font-size: 20px; text-align: center; }
             #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; position: relative; }
             
-            .zoom-container { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; background: var(--last-bg); padding: 8px 12px; border-radius: 6px; display: none; }
+            .zoom-container { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; background: var(--last-bg); padding: 8px 12px; border-radius: 6px; }
             .zoom-container span { font-size: 14px; font-weight: bold; min-width: 45px; text-align: right; }
             .zoom-slider { flex: 1; height: 6px; -webkit-appearance: none; appearance: none; background: var(--border-color); border-radius: 3px; outline: none; }
             .zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #0066cc; cursor: pointer; }
@@ -203,26 +203,29 @@ async def main_page(request: Request):
             }
 
             async function initZoomCapabilities() {
+                const zoomWrapper = document.getElementById('zoomWrapper');
+                zoomWrapper.style.display = 'flex';
+
                 try {
                     const track = html5QrCode.getRunningTrack();
                     if (track && track.getCapabilities) {
                         const capabilities = track.getCapabilities();
                         if (capabilities.zoom) {
-                            const minZoom = capabilities.zoom.min || 1;
-                            const maxZoom = capabilities.zoom.max || 5;
                             const range = document.getElementById('zoomRange');
-                            range.min = minZoom;
-                            range.max = maxZoom;
+                            range.min = capabilities.zoom.min || 1;
+                            range.max = capabilities.zoom.max || 5;
+                            range.step = capabilities.zoom.step || 0.1;
                             
                             const settings = track.getSettings();
                             if (settings.zoom) {
                                 range.value = settings.zoom;
                                 document.getElementById('zoomVal').innerText = settings.zoom.toFixed(1) + 'x';
                             }
-                            document.getElementById('zoomWrapper').style.display = 'flex';
                         }
                     }
-                } catch (e) {}
+                } catch (e) {
+                    console.log("Зум через capabilities не надійшов, використовуємо стандартний діапазон 1-5");
+                }
             }
 
             async function toggleTorch() {
@@ -746,7 +749,7 @@ async def scan_barcode(file: UploadFile = File(...), is_a6: bool = Form(False)):
             
         target_list.insert(0, barcode_data)
         
-        scan_history.insert,(0, {
+        scan_history.insert(0, {
             "code": barcode_data,
             "type": target_key,
             "time": current_time,
