@@ -312,7 +312,7 @@ async def main_page(request: Request):
             @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
             @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
 
-            /* Постійне підсвічування скопійованого рядка */
+            /* Зберігаємо підсвічування для всіх скопійованих кодованих елементів */
             .highlight { background-color: #d4edda !important; }
             [data-theme="dark"] .highlight { background-color: #1b3d2f !important; }
 
@@ -446,7 +446,9 @@ async def main_page(request: Request):
 
             // Логіка кастомного модального вікна PIN-коду
             let currentPinAction = null;
-            let lastCopied = null; // Зберігаємо останній скопійований код для підсвічування
+            
+            // Використовуємо Set з localStorage для збереження всіх скопійованих штрихкодів назавжди (навіть після оновлення сторінки)
+            let copiedCodes = new Set(JSON.parse(localStorage.getItem('copiedCodes') || '[]'));
 
             function requestPin(actionType) {
                 currentPinAction = actionType;
@@ -464,12 +466,14 @@ async def main_page(request: Request):
                 const enteredPin = document.getElementById('pinInputCode').value;
                 if (!enteredPin) return;
                 
+                // Зберігаємо тип дії локально перед закриттям модалки, щоб він не стирався
+                const actionToPerform = currentPinAction;
                 closePinModal();
 
-                if (currentPinAction === 'history') {
+                if (actionToPerform === 'history') {
                     await clearHistoryAction(enteredPin);
-                } else if (currentPinAction === 'regular' || currentPinAction === 'a6') {
-                    await clearListAction(currentPinAction, enteredPin);
+                } else if (actionToPerform === 'regular' || actionToPerform === 'a6') {
+                    await clearListAction(actionToPerform, enteredPin);
                 }
             }
 
@@ -496,7 +500,7 @@ async def main_page(request: Request):
                             return;
                         }
                         container.innerHTML = list.map(c => `
-                            <div class="item ${lastCopied === c ? 'highlight' : ''}">
+                            <div class="item ${copiedCodes.has(c) ? 'highlight' : ''}">
                                 <code>${c}</code>
                                 <button class="btn-copy" onclick="copyToClipboard('${c}', this)">Копіювати</button>
                             </div>
@@ -511,7 +515,7 @@ async def main_page(request: Request):
                         historyContainer.innerHTML = '<p style="color: #888; text-align: center;">Історія порожня</p>';
                     } else {
                         historyContainer.innerHTML = data.history.map(h => `
-                            <div class="history-item ${lastCopied === h.code ? 'highlight' : ''}">
+                            <div class="history-item ${copiedCodes.has(h.code) ? 'highlight' : ''}">
                                 <div>
                                     <span style="opacity: 0.7; font-weight: bold; margin-right: 10px;">[${h.time}]</span>
                                     <code>${h.code}</code>
@@ -531,9 +535,18 @@ async def main_page(request: Request):
 
             function copyToClipboard(text, btnElement) {
                 navigator.clipboard.writeText(text);
-                lastCopied = text; // Запам'ятовуємо скопійований текст
+                
+                // Додаємо код до нашого Set та зберігаємо в localStorage (тепер підсвічуються всі скопійовані, а не тільки останній)
+                copiedCodes.add(text);
+                localStorage.setItem('copiedCodes', JSON.stringify(Array.from(copiedCodes)));
+                
                 showToast("Скопійовано: " + text);
-                loadData(); // Миттєво перемальовуємо, щоб застосувати підсвічування
+                
+                // Миттєво підсвічуємо рядок без повного перемалювання списку (щоб уникнути зникнення/скасування фокусу чи багів)
+                const itemRow = btnElement.closest('.item') || btnElement.closest('.history-item');
+                if (itemRow) {
+                    itemRow.classList.add('highlight');
+                }
             }
 
             function downloadTxt(type) {
@@ -557,7 +570,6 @@ async def main_page(request: Request):
                 const result = await response.json();
 
                 if (result.success) {
-                    lastCopied = null; // Скидаємо підсвітку
                     loadData(); // Примусово оновлюємо список одразу після відповіді сервера
                     showToast("Список успішно очищено!");
                 } else {
@@ -570,7 +582,6 @@ async def main_page(request: Request):
                 const result = await response.json();
 
                 if (result.success) {
-                    lastCopied = null; // Скидаємо підсвітку
                     loadData(); // Примусово оновлюємо історію одразу після відповіді сервера
                     showToast("Історію успішно очищено!");
                 } else {
@@ -635,7 +646,7 @@ async def scan_barcode(file: UploadFile = File(...), is_a6: bool = Form(False)):
         target_list = scanned_codes[target_key]
         
         current_time = datetime.now().strftime("%H:%M:%S")
-        is_dup = barcode_data in target_list
+        is_dup = barcode_data in total if False else barcode_data in target_list
         
         if is_dup:
             target_list.remove(barcode_data)
