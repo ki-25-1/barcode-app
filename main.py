@@ -82,12 +82,15 @@ async def main_page(request: Request):
             .checkbox-label { font-size: 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 12px; font-weight: bold; }
             .checkbox-label input { width: 24px; height: 24px; }
             h2 { margin-top: 0; font-size: 20px; text-align: center; }
-            #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; position: relative; touch-action: none; }
+            #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; position: relative; }
             
+            .zoom-container { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; background: var(--last-bg); padding: 8px 12px; border-radius: 6px; display: none; }
+            .zoom-container span { font-size: 14px; font-weight: bold; min-width: 45px; text-align: right; }
+            .zoom-slider { flex: 1; height: 6px; -webkit-appearance: none; appearance: none; background: var(--border-color); border-radius: 3px; outline: none; }
+            .zoom-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #0066cc; cursor: pointer; }
+
             .btn-torch { width: 100%; background: #f0ad4e; color: white; border: none; padding: 12px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 12px; display: none; }
             .btn-torch.active { background: #ec971f; }
-
-            .zoom-indicator { position: absolute; top: 10px; right: 10px; background: rgba(0, 0, 0, 0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; pointer-events: none; display: none; z-index: 10; }
 
             .last-code-box { background: var(--last-bg); padding: 12px; border-radius: 6px; margin-top: 15px; text-align: center; border: 2px dashed #0066cc; }
             .last-code-title { font-size: 14px; opacity: 0.8; margin-bottom: 4px; }
@@ -108,10 +111,14 @@ async def main_page(request: Request):
                 <span>Цінник А6</span>
             </label>
             
-            <div id="reader">
-                <div id="zoomIndicator" class="zoom-indicator">1.0x</div>
-            </div>
+            <div id="reader"></div>
             
+            <div id="zoomWrapper" class="zoom-container">
+                <span>🔍 Зум:</span>
+                <input type="range" id="zoomRange" class="zoom-slider" min="1" max="5" step="0.1" value="1" oninput="changeZoom(this.value)">
+                <span id="zoomVal">1.0x</span>
+            </div>
+
             <button id="torchBtn" class="btn-torch" onclick="toggleTorch()">🔦 Увімкнути ліхтарик</button>
 
             <div class="last-code-box">
@@ -183,26 +190,15 @@ async def main_page(request: Request):
             let html5QrCode = null;
             let isScanningLocked = false;
             let torchOn = false;
-            let currentZoom = 1;
-            let minZoom = 1;
-            let maxZoom = 5;
-            let zoomStep = 0.15;
-            let initialPinchDistance = null;
 
-            async function updateZoom(newZoom) {
+            async function changeZoom(val) {
+                const zoomVal = parseFloat(val);
+                document.getElementById('zoomVal').innerText = zoomVal.toFixed(1) + 'x';
                 if (!html5QrCode) return;
                 try {
-                    currentZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
                     await html5QrCode.applyVideoConstraints({
-                        advanced: [{ zoom: currentZoom }]
+                        advanced: [{ zoom: zoomVal }]
                     });
-                    const indicator = document.getElementById('zoomIndicator');
-                    indicator.innerText = currentZoom.toFixed(1) + 'x';
-                    indicator.style.display = 'block';
-                    clearTimeout(window.zoomTimeout);
-                    window.zoomTimeout = setTimeout(() => {
-                        indicator.style.display = 'none';
-                    }, 1500);
                 } catch (err) {}
             }
 
@@ -212,12 +208,18 @@ async def main_page(request: Request):
                     if (track && track.getCapabilities) {
                         const capabilities = track.getCapabilities();
                         if (capabilities.zoom) {
-                            minZoom = capabilities.zoom.min || 1;
-                            maxZoom = capabilities.zoom.max || 5;
+                            const minZoom = capabilities.zoom.min || 1;
+                            const maxZoom = capabilities.zoom.max || 5;
+                            const range = document.getElementById('zoomRange');
+                            range.min = minZoom;
+                            range.max = maxZoom;
+                            
                             const settings = track.getSettings();
                             if (settings.zoom) {
-                                currentZoom = settings.zoom;
+                                range.value = settings.zoom;
+                                document.getElementById('zoomVal').innerText = settings.zoom.toFixed(1) + 'x';
                             }
+                            document.getElementById('zoomWrapper').style.display = 'flex';
                         }
                     }
                 } catch (e) {}
@@ -347,40 +349,6 @@ async def main_page(request: Request):
                 }).catch(err => {
                     document.getElementById('status').style.color = "red";
                     document.getElementById('status').innerText = "Немає доступу до камери.";
-                });
-
-                const readerElement = document.getElementById('reader');
-
-                readerElement.addEventListener('touchstart', (e) => {
-                    if (e.touches.length === 2) {
-                        initialPinchDistance = Math.hypot(
-                            e.touches[0].clientX - e.touches[1].clientX,
-                            e.touches[0].clientY - e.touches[1].clientY
-                        );
-                        e.preventDefault();
-                    }
-                }, { passive: false });
-
-                readerElement.addEventListener('touchmove', (e) => {
-                    if (e.touches.length === 2 && initialPinchDistance !== null) {
-                        const currentDistance = Math.hypot(
-                            e.touches[0].clientX - e.touches[1].clientX,
-                            e.touches[0].clientY - e.touches[1].clientY
-                        );
-                        const diff = currentDistance - initialPinchDistance;
-                        if (Math.abs(diff) > 8) {
-                            const newZoom = currentZoom + (diff > 0 ? zoomStep : -zoomStep);
-                            updateZoom(newZoom);
-                            initialPinchDistance = currentDistance;
-                        }
-                        e.preventDefault();
-                    }
-                }, { passive: false });
-
-                readerElement.addEventListener('touchend', (e) => {
-                    if (e.touches.length < 2) {
-                        initialPinchDistance = null;
-                    }
                 });
             });
         </script>
@@ -778,7 +746,7 @@ async def scan_barcode(file: UploadFile = File(...), is_a6: bool = Form(False)):
             
         target_list.insert(0, barcode_data)
         
-        scan_history.insert(0, {
+        scan_history.insert,(0, {
             "code": barcode_data,
             "type": target_key,
             "time": current_time,
