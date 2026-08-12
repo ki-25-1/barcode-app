@@ -1,9 +1,10 @@
 from fastapi import FastAPI, File, UploadFile, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from PIL import Image
 from zxingcpp import read_barcode
 from datetime import datetime
 import io
+import os
 
 app = FastAPI()
 
@@ -13,6 +14,19 @@ scanned_codes = {
 }
 
 scan_history = []
+
+# Роути для PWA файлів
+@app.get("/manifest.json")
+async def manifest():
+    if os.path.exists("manifest.json"):
+        return FileResponse("manifest.json", media_type="application/manifest+json")
+    return {"error": "manifest.json not found"}
+
+@app.get("/sw.js")
+async def service_worker():
+    if os.path.exists("sw.js"):
+        return FileResponse("sw.js", media_type="application/javascript")
+    return {"error": "sw.js not found"}
 
 @app.post("/clear/{list_type}/{pin}")
 async def clear_list(list_type: str, pin: str):
@@ -43,6 +57,8 @@ async def main_page(request: Request):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Живий сканер цінників</title>
+        <link rel="manifest" href="/manifest.json">
+        <meta name="theme-color" content="#0066cc">
         <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
         <style>
             :root {
@@ -103,6 +119,12 @@ async def main_page(request: Request):
         </div>
 
         <script>
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW error:', err));
+                });
+            }
+
             let currentTheme = localStorage.getItem('theme') || 'light';
             document.body.setAttribute('data-theme', currentTheme);
             document.querySelector('.theme-btn').innerText = currentTheme === 'dark' ? '☀️ Тема' : '🌙 Тема';
@@ -174,7 +196,7 @@ async def main_page(request: Request):
                         btn.innerText = '🔦 Увімкнути ліхтарик';
                     }
                 } catch (err) {
-                    alert("Цей пристрій або браузер не підтримує керування ліхтариком через камеру.");
+                    alert("Цей пристрій не підтримує керування ліхтариком.");
                     torchOn = !torchOn;
                 }
             }
@@ -187,6 +209,21 @@ async def main_page(request: Request):
                 const lastCodeEl = document.getElementById('lastCodeValue');
                 const isA6 = document.getElementById('isA6').checked;
                 
+                lastCodeEl.innerText = decodedText;
+
+                if (!navigator.onLine) {
+                    let offlineQueue = JSON.parse(localStorage.getItem('offlineQueue') || '[]');
+                    offlineQueue.push({ code: decodedText, is_a6: isA6, time: new Date().toLocaleTimeString() });
+                    localStorage.setItem('offlineQueue', JSON.stringify(offlineQueue));
+
+                    playTsdSound(true);
+                    speakText("Збережено офлайн");
+                    status.style.color = "#f0ad4e";
+                    status.innerText = "⚠️ Офлайн: збережено локально!";
+                    setTimeout(() => { isScanningLocked = false; }, 1500);
+                    return;
+                }
+
                 status.style.color = "#0066cc";
                 status.innerText = "Обробка...";
 
@@ -198,8 +235,6 @@ async def main_page(request: Request):
                     });
                     const result = await response.json();
                     
-                    lastCodeEl.innerText = decodedText;
-
                     if (result.success) {
                         if (result.is_duplicate) {
                             playTsdSound(false);
@@ -220,16 +255,33 @@ async def main_page(request: Request):
                         status.innerText = "Помилка: " + result.error;
                     }
                 } catch (err) {
+                    let offlineQueue = JSON.parse(localStorage.getItem('offlineQueue') || '[]');
+                    offlineQueue.push({ code: decodedText, is_a6: isA6, time: new Date().toLocaleTimeString() });
+                    localStorage.setItem('offlineQueue', JSON.stringify(offlineQueue));
+
                     playTsdSound(false);
-                    speakText("Помилка");
-                    status.style.color = "red";
-                    status.innerText = "Помилка з'єднання.";
+                    speakText("Помилка мережі");
+                    status.style.color = "#f0ad4e";
+                    status.innerText = "⚠️ Зв'язок зник. Збережено локально.";
                 }
 
-                setTimeout(() => {
-                    isScanningLocked = false;
-                }, 1800);
+                setTimeout(() => { isScanningLocked = false; }, 1800);
             }
+
+            window.addEventListener('online', async () => {
+                let offlineQueue = JSON.parse(localStorage.getItem('offlineQueue') || '[]');
+                if (offlineQueue.length === 0) return;
+                for (let item of offlineQueue) {
+                    try {
+                        await fetch('/api-scan-text', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ code: item.code, is_a6: item.is_a6 })
+                        });
+                    } catch (e) {}
+                }
+                localStorage.removeItem('offlineQueue');
+            });
 
             window.addEventListener('load', function () {
                 html5QrCode = new Html5Qrcode("reader");
@@ -243,11 +295,8 @@ async def main_page(request: Request):
                         height: { ideal: 1080 }
                     }
                 };
-                html5QrCode.start(
-                    { facingMode: "environment" }, 
-                    config,
-                    onScanSuccess
-                ).then(() => {
+                html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+                .then(() => {
                     document.getElementById('status').innerText = "Наведіть камеру на штрихкод...";
                     document.getElementById('torchBtn').style.display = 'block';
                 }).catch(err => {
@@ -267,7 +316,8 @@ async def main_page(request: Request):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Панель керування штрихкодами</title>
-        <!-- Підключення бібліотеки для генерації QR-кодів -->
+        <link rel="manifest" href="/manifest.json">
+        <meta name="theme-color" content="#0066cc">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
         <style>
             :root {
@@ -312,7 +362,6 @@ async def main_page(request: Request):
             @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
             @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
 
-            /* Зберігаємо підсвічування для всіх скопійованих кодованих елементів */
             .highlight { background-color: #d4edda !important; }
             [data-theme="dark"] .highlight { background-color: #1b3d2f !important; }
 
@@ -321,7 +370,6 @@ async def main_page(request: Request):
             #qrcode { display: flex; justify-content: center; margin: 15px auto; }
             #qrcode img { display: block; border-radius: 8px; }
 
-            /* Стилі для кастомного модального вікна введення пароля */
             .pin-input { width: 80%; padding: 10px; font-size: 18px; text-align: center; border: 2px solid var(--border-color); border-radius: 6px; margin: 15px 0; background: var(--bg-color); color: var(--text-color); outline: none; }
             .pin-buttons { display: flex; gap: 10px; justify-content: center; }
             .pin-buttons button { flex: 1; padding: 8px; font-size: 14px; }
@@ -331,17 +379,15 @@ async def main_page(request: Request):
     <body data-theme="light">
         <div id="toast">Скопійовано в буфер!</div>
 
-        <!-- Модальне вікно QR-коду -->
         <div id="qrModal" class="modal-overlay" onclick="closeQrModal(event)">
             <div class="modal" onclick="event.stopPropagation()">
                 <h3>Мобільний сканер</h3>
-                <p style="font-size: 14px; opacity: 0.8;">Відскануйте камерю телефону:</p>
+                <p style="font-size: 14px; opacity: 0.8;">Відскануйте камеру телефону:</p>
                 <div id="qrcode"></div>
                 <button onclick="document.getElementById('qrModal').style.display='none'">Закрити</button>
             </div>
         </div>
 
-        <!-- Кастомне модальне вікно для PIN-коду по центру -->
         <div id="pinModal" class="modal-overlay">
             <div class="modal" onclick="event.stopPropagation()">
                 <h3 id="pinModalTitle">Введіть PIN-код</h3>
@@ -392,6 +438,12 @@ async def main_page(request: Request):
         </div>
 
         <script>
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW error:', err));
+                });
+            }
+
             let currentTheme = localStorage.getItem('theme') || 'light';
             document.body.setAttribute('data-theme', currentTheme);
             document.querySelector('.theme-btn').innerText = currentTheme === 'dark' ? '☀️ Світла тема' : '🌙 Темна тема';
@@ -406,7 +458,6 @@ async def main_page(request: Request):
             function switchTab(tabName, btn) {
                 document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
                 document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-                
                 if (tabName === 'lists') {
                     document.getElementById('listsTab').classList.add('active');
                 } else {
@@ -419,9 +470,7 @@ async def main_page(request: Request):
                 const toast = document.getElementById('toast');
                 toast.innerText = message;
                 toast.className = 'show';
-                setTimeout(() => {
-                    toast.className = '';
-                }, 2000);
+                setTimeout(() => { toast.className = ''; }, 2000);
             }
 
             let qrInitialized = false;
@@ -429,7 +478,7 @@ async def main_page(request: Request):
                 document.getElementById('qrModal').style.display = 'flex';
                 if (!qrInitialized) {
                     new QRCode(document.getElementById("qrcode"), {
-                        text: "https://barcode-app-zzrm.onrender.com/",
+                        text: window.location.origin,
                         width: 200,
                         height: 200,
                         colorDark : "#000000",
@@ -444,10 +493,7 @@ async def main_page(request: Request):
                 document.getElementById('qrModal').style.display = 'none';
             }
 
-            // Логіка кастомного модального вікна PIN-коду
             let currentPinAction = null;
-            
-            // Використовуємо Set з localStorage для збереження всіх скопійованих штрихкодів назавжди (навіть після оновлення сторінки)
             let copiedCodes = new Set(JSON.parse(localStorage.getItem('copiedCodes') || '[]'));
 
             function requestPin(actionType) {
@@ -466,7 +512,6 @@ async def main_page(request: Request):
                 const enteredPin = document.getElementById('pinInputCode').value;
                 if (!enteredPin) return;
                 
-                // Зберігаємо тип дії локально перед закриттям модалки, щоб він не стирався
                 const actionToPerform = currentPinAction;
                 closePinModal();
 
@@ -477,7 +522,6 @@ async def main_page(request: Request):
                 }
             }
 
-            // Обробник клавіші Enter у полі введення PIN
             document.getElementById('pinInputCode').addEventListener('keypress', function (e) {
                 if (e.key === 'Enter') {
                     submitPinModal();
@@ -535,14 +579,10 @@ async def main_page(request: Request):
 
             function copyToClipboard(text, btnElement) {
                 navigator.clipboard.writeText(text);
-                
-                // Додаємо код до нашого Set та зберігаємо в localStorage (тепер підсвічуються всі скопійовані, а не тільки останній)
                 copiedCodes.add(text);
                 localStorage.setItem('copiedCodes', JSON.stringify(Array.from(copiedCodes)));
-                
                 showToast("Скопійовано: " + text);
                 
-                // Миттєво підсвічуємо рядок без повного перемалювання списку (щоб уникнути зникнення/скасування фокусу чи багів)
                 const itemRow = btnElement.closest('.item') || btnElement.closest('.history-item');
                 if (itemRow) {
                     itemRow.classList.add('highlight');
@@ -570,7 +610,7 @@ async def main_page(request: Request):
                 const result = await response.json();
 
                 if (result.success) {
-                    loadData(); // Примусово оновлюємо список одразу після відповіді сервера
+                    loadData();
                     showToast("Список успішно очищено!");
                 } else {
                     showToast("Невірний PIN-код!");
@@ -582,7 +622,7 @@ async def main_page(request: Request):
                 const result = await response.json();
 
                 if (result.success) {
-                    loadData(); // Примусово оновлюємо історію одразу після відповіді сервера
+                    loadData();
                     showToast("Історію успішно очищено!");
                 } else {
                     showToast("Невірний PIN-код!");
@@ -646,7 +686,7 @@ async def scan_barcode(file: UploadFile = File(...), is_a6: bool = Form(False)):
         target_list = scanned_codes[target_key]
         
         current_time = datetime.now().strftime("%H:%M:%S")
-        is_dup = barcode_data in total if False else barcode_data in target_list
+        is_dup = barcode_data in target_list
         
         if is_dup:
             target_list.remove(barcode_data)
