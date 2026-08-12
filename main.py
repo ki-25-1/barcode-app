@@ -291,6 +291,7 @@ async def main_page(request: Request):
                     videoConstraints: {
                         facingMode: "environment",
                         focusMode: "continuous",
+                        advanced: [{ focusMode: "continuous" }],
                         width: { ideal: 1920 },
                         height: { ideal: 1080 }
                     }
