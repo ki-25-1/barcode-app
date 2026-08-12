@@ -1,0 +1,15 @@
+{
+  "name": "Сканер штрихкодів",
+  "short_name": "Сканер",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#0066cc",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2989/2989988.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
