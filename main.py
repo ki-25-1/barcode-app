@@ -82,7 +82,9 @@ async def main_page(request: Request):
             .checkbox-label { font-size: 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 12px; font-weight: bold; }
             .checkbox-label input { width: 24px; height: 24px; }
             h2 { margin-top: 0; font-size: 20px; text-align: center; }
-            #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; position: relative; }
+            
+            .reader-wrapper { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; position: relative; }
+            #reader { width: 100%; height: 100%; position: relative; transform-origin: center center; transition: transform 0.1s ease-out; }
             
             .zoom-container { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; background: var(--last-bg); padding: 8px 12px; border-radius: 6px; }
             .zoom-container span { font-size: 14px; font-weight: bold; min-width: 45px; text-align: right; }
@@ -111,11 +113,13 @@ async def main_page(request: Request):
                 <span>Цінник А6</span>
             </label>
             
-            <div id="reader"></div>
+            <div class="reader-wrapper">
+                <div id="reader"></div>
+            </div>
             
             <div id="zoomWrapper" class="zoom-container">
                 <span>🔍 Зум:</span>
-                <input type="range" id="zoomRange" class="zoom-slider" min="1" max="5" step="0.1" value="1" oninput="changeZoom(this.value)">
+                <input type="range" id="zoomRange" class="zoom-slider" min="1" max="3" step="0.1" value="1" oninput="changeZoom(this.value)">
                 <span id="zoomVal">1.0x</span>
             </div>
 
@@ -191,41 +195,11 @@ async def main_page(request: Request):
             let isScanningLocked = false;
             let torchOn = false;
 
-            async function changeZoom(val) {
+            function changeZoom(val) {
                 const zoomVal = parseFloat(val);
                 document.getElementById('zoomVal').innerText = zoomVal.toFixed(1) + 'x';
-                if (!html5QrCode) return;
-                try {
-                    await html5QrCode.applyVideoConstraints({
-                        advanced: [{ zoom: zoomVal }]
-                    });
-                } catch (err) {}
-            }
-
-            async function initZoomCapabilities() {
-                const zoomWrapper = document.getElementById('zoomWrapper');
-                zoomWrapper.style.display = 'flex';
-
-                try {
-                    const track = html5QrCode.getRunningTrack();
-                    if (track && track.getCapabilities) {
-                        const capabilities = track.getCapabilities();
-                        if (capabilities.zoom) {
-                            const range = document.getElementById('zoomRange');
-                            range.min = capabilities.zoom.min || 1;
-                            range.max = capabilities.zoom.max || 5;
-                            range.step = capabilities.zoom.step || 0.1;
-                            
-                            const settings = track.getSettings();
-                            if (settings.zoom) {
-                                range.value = settings.zoom;
-                                document.getElementById('zoomVal').innerText = settings.zoom.toFixed(1) + 'x';
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.log("Зум через capabilities не надійшов, використовуємо стандартний діапазон 1-5");
-                }
+                const readerEl = document.getElementById('reader');
+                readerEl.style.transform = `scale(${zoomVal})`;
             }
 
             async function toggleTorch() {
@@ -348,7 +322,6 @@ async def main_page(request: Request):
                 .then(() => {
                     document.getElementById('status').innerText = "Наведіть камеру на штрихкод...";
                     document.getElementById('torchBtn').style.display = 'block';
-                    initZoomCapabilities();
                 }).catch(err => {
                     document.getElementById('status').style.color = "red";
                     document.getElementById('status').innerText = "Немає доступу до камери.";
