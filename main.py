@@ -267,6 +267,8 @@ async def main_page(request: Request):
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Панель керування штрихкодами</title>
+        <!-- Підключення бібліотеки для генерації QR-кодів -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
         <style>
             :root {
                 --bg-color: #f4f6f8;
@@ -314,7 +316,9 @@ async def main_page(request: Request):
 
             .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10000; justify-content: center; align-items: center; }
             .modal { background: var(--card-bg); padding: 25px; border-radius: 12px; width: 320px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
-            .modal img { width: 220px; height: 220px; margin: 15px auto; display: block; border-radius: 8px; }
+            /* Центрування згенерованого QR-коду */
+            #qrcode { display: flex; justify-content: center; margin: 15px auto; }
+            #qrcode img { display: block; border-radius: 8px; }
         </style>
     </head>
     <body data-theme="light">
@@ -324,7 +328,8 @@ async def main_page(request: Request):
             <div class="modal" onclick="event.stopPropagation()">
                 <h3>Мобільний сканер</h3>
                 <p style="font-size: 14px; opacity: 0.8;">Відскануйте камерю телефону:</p>
-                <img src="https://chart.googleapis.com/chart?chs=300x300&cht=qr&chl=https://barcode-app-zzrm.onrender.com/&choe=UTF-8" alt="QR Code">
+                <!-- Контейнер куди JS автоматично згенерує QR-код -->
+                <div id="qrcode"></div>
                 <button onclick="document.getElementById('qrModal').style.display='none'">Закрити</button>
             </div>
         </div>
@@ -340,7 +345,7 @@ async def main_page(request: Request):
         </div>
 
         <div id="listsTab" class="tab-content active">
-            <button class="btn-qr" onclick="document.getElementById('qrModal').style.display='flex'">📱 Показати QR-код для мобільного</button>
+            <button class="btn-qr" onclick="openQrModal()">📱 Показати QR-код для мобільного</button>
             <div class="flex-grid">
                 <div class="col card">
                     <h3>Звичайні цінники (Кількість: <span id="regCount">0</span>)</h3>
@@ -397,6 +402,23 @@ async def main_page(request: Request):
                 setTimeout(() => {
                     toast.className = '';
                 }, 2000);
+            }
+
+            // Автоматична генерація QR-коду при відкритті модального вікна
+            let qrInitialized = false;
+            function openQrModal() {
+                document.getElementById('qrModal').style.display = 'flex';
+                if (!qrInitialized) {
+                    new QRCode(document.getElementById("qrcode"), {
+                        text: "https://barcode-app-zzrm.onrender.com/",
+                        width: 200,
+                        height: 200,
+                        colorDark : "#000000",
+                        colorLight : "#ffffff",
+                        correctLevel : QRCode.CorrectLevel.H
+                    });
+                    qrInitialized = true;
+                }
             }
 
             function closeQrModal(event) {
