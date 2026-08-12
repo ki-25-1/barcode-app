@@ -296,8 +296,8 @@ async def main_page(request: Request):
             
             .flex-grid { display: flex; gap: 20px; flex-wrap: wrap; }
             .col { flex: 1; min-width: 350px; }
-            .item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 18px; transition: background-color 0.5s; }
-            .history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 16px; transition: background-color 0.5s; }
+            .item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 18px; transition: background-color 0.3s; }
+            .history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); font-size: 16px; transition: background-color 0.3s; }
             button { cursor: pointer; padding: 10px 16px; border-radius: 6px; border: none; background: #0066cc; color: white; font-weight: bold; font-size: 16px; }
             .btn-clear { background: #ff4d4d; margin-bottom: 10px; width: 100%; }
             .btn-download { background: #17a2b8; margin-bottom: 10px; width: 100%; }
@@ -312,25 +312,45 @@ async def main_page(request: Request):
             @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
             @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
 
+            /* Постійне підсвічування скопійованого рядка */
             .highlight { background-color: #d4edda !important; }
+            [data-theme="dark"] .highlight { background-color: #1b3d2f !important; }
 
             .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10000; justify-content: center; align-items: center; }
             .modal { background: var(--card-bg); padding: 25px; border-radius: 12px; width: 320px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
-            /* Центрування згенерованого QR-коду */
             #qrcode { display: flex; justify-content: center; margin: 15px auto; }
             #qrcode img { display: block; border-radius: 8px; }
+
+            /* Стилі для кастомного модального вікна введення пароля */
+            .pin-input { width: 80%; padding: 10px; font-size: 18px; text-align: center; border: 2px solid var(--border-color); border-radius: 6px; margin: 15px 0; background: var(--bg-color); color: var(--text-color); outline: none; }
+            .pin-buttons { display: flex; gap: 10px; justify-content: center; }
+            .pin-buttons button { flex: 1; padding: 8px; font-size: 14px; }
+            .btn-cancel { background: #6c757d; }
         </style>
     </head>
     <body data-theme="light">
         <div id="toast">Скопійовано в буфер!</div>
 
+        <!-- Модальне вікно QR-коду -->
         <div id="qrModal" class="modal-overlay" onclick="closeQrModal(event)">
             <div class="modal" onclick="event.stopPropagation()">
                 <h3>Мобільний сканер</h3>
                 <p style="font-size: 14px; opacity: 0.8;">Відскануйте камерю телефону:</p>
-                <!-- Контейнер куди JS автоматично згенерує QR-код -->
                 <div id="qrcode"></div>
                 <button onclick="document.getElementById('qrModal').style.display='none'">Закрити</button>
+            </div>
+        </div>
+
+        <!-- Кастомне модальне вікно для PIN-коду по центру -->
+        <div id="pinModal" class="modal-overlay">
+            <div class="modal" onclick="event.stopPropagation()">
+                <h3 id="pinModalTitle">Введіть PIN-код</h3>
+                <p style="font-size: 14px; opacity: 0.8;" id="pinModalDesc">Для виконання цієї дії потрібен PIN:</p>
+                <input type="password" id="pinInputCode" class="pin-input" placeholder="••••" maxlength="6" autofocus>
+                <div class="pin-buttons">
+                    <button class="btn-cancel" onclick="closePinModal()">Скасувати</button>
+                    <button onclick="submitPinModal()">Підтвердити</button>
+                </div>
             </div>
         </div>
 
@@ -350,14 +370,14 @@ async def main_page(request: Request):
                 <div class="col card">
                     <h3>Звичайні цінники (Кількість: <span id="regCount">0</span>)</h3>
                     <button class="btn-download" onclick="downloadTxt('regular')">Скачати список (TXT)</button>
-                    <button class="btn-clear" onclick="clearList('regular')">Очистити звичайний список</button>
+                    <button class="btn-clear" onclick="requestPin('regular')">Очистити звичайний список</button>
                     <div id="regularList"></div>
                 </div>
                 
                 <div class="col card">
                     <h3>Цінники А6 (Кількість: <span id="a6Count">0</span>)</h3>
                     <button class="btn-download" onclick="downloadTxt('a6')">Скачати список (TXT)</button>
-                    <button class="btn-clear" onclick="clearList('a6')">Очистити список А6</button>
+                    <button class="btn-clear" onclick="requestPin('a6')">Очистити список А6</button>
                     <div id="a6List"></div>
                 </div>
             </div>
@@ -366,7 +386,7 @@ async def main_page(request: Request):
         <div id="historyTab" class="tab-content">
             <div class="card">
                 <h3>Повна хронологія сканувань</h3>
-                <button class="btn-clear" style="max-width: 300px;" onclick="clearHistory()">Очистити історію</button>
+                <button class="btn-clear" style="max-width: 300px;" onclick="requestPin('history')">Очистити історію</button>
                 <div id="historyList" style="margin-top: 15px;"></div>
             </div>
         </div>
@@ -404,7 +424,6 @@ async def main_page(request: Request):
                 }, 2000);
             }
 
-            // Автоматична генерація QR-коду при відкритті модального вікна
             let qrInitialized = false;
             function openQrModal() {
                 document.getElementById('qrModal').style.display = 'flex';
@@ -424,6 +443,40 @@ async def main_page(request: Request):
             function closeQrModal(event) {
                 document.getElementById('qrModal').style.display = 'none';
             }
+
+            // Логіка кастомного модального вікна PIN-коду
+            let currentPinAction = null;
+            function requestPin(actionType) {
+                currentPinAction = actionType;
+                document.getElementById('pinInputCode').value = '';
+                document.getElementById('pinModal').style.display = 'flex';
+                setTimeout(() => document.getElementById('pinInputCode').focus(), 100);
+            }
+
+            function closePinModal() {
+                document.getElementById('pinModal').style.display = 'none';
+                currentPinAction = null;
+            }
+
+            async function submitPinModal() {
+                const enteredPin = document.getElementById('pinInputCode').value;
+                if (!enteredPin) return;
+                
+                closePinModal();
+
+                if (currentPinAction === 'history') {
+                    await clearHistoryAction(enteredPin);
+                } else if (currentPinAction === 'regular' || currentPinAction === 'a6') {
+                    await clearListAction(currentPinAction, enteredPin);
+                }
+            }
+
+            // Обробник клавіші Enter у полі введення PIN
+            document.getElementById('pinInputCode').addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    submitPinModal();
+                }
+            });
 
             let cachedData = { regular: [], a6: [], history: [] };
 
@@ -480,9 +533,6 @@ async def main_page(request: Request):
                 const itemRow = btnElement.closest('.item') || btnElement.closest('.history-item');
                 if (itemRow) {
                     itemRow.classList.add('highlight');
-                    setTimeout(() => {
-                        itemRow.classList.remove('highlight');
-                    }, 1000);
                 }
             }
 
@@ -502,10 +552,7 @@ async def main_page(request: Request):
                 document.body.removeChild(a);
             }
 
-            async function clearList(type) {
-                const enteredPin = prompt("Введіть PIN-код для очищення списку:");
-                if (!enteredPin) return;
-
+            async function clearListAction(type, enteredPin) {
                 const response = await fetch(`/clear/${type}/${enteredPin}`, { method: 'POST' });
                 const result = await response.json();
 
@@ -517,10 +564,7 @@ async def main_page(request: Request):
                 }
             }
 
-            async function clearHistory() {
-                const enteredPin = prompt("Введіть PIN-код для очищення історії:");
-                if (!enteredPin) return;
-
+            async function clearHistoryAction(enteredPin) {
                 const response = await fetch(`/clear-history/${enteredPin}`, { method: 'POST' });
                 const result = await response.json();
 
