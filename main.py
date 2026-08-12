@@ -82,10 +82,12 @@ async def main_page(request: Request):
             .checkbox-label { font-size: 18px; display: flex; align-items: center; gap: 12px; cursor: pointer; margin-bottom: 12px; font-weight: bold; }
             .checkbox-label input { width: 24px; height: 24px; }
             h2 { margin-top: 0; font-size: 20px; text-align: center; }
-            #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; }
+            #reader { width: 100%; min-height: 280px; border-radius: 8px; overflow: hidden; background: #000; margin-bottom: 10px; position: relative; touch-action: none; }
             
             .btn-torch { width: 100%; background: #f0ad4e; color: white; border: none; padding: 12px; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 12px; display: none; }
             .btn-torch.active { background: #ec971f; }
+
+            .zoom-indicator { position: absolute; top: 10px; right: 10px; background: rgba(0, 0, 0, 0.6); color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; pointer-events: none; display: none; z-index: 10; }
 
             .last-code-box { background: var(--last-bg); padding: 12px; border-radius: 6px; margin-top: 15px; text-align: center; border: 2px dashed #0066cc; }
             .last-code-title { font-size: 14px; opacity: 0.8; margin-bottom: 4px; }
@@ -106,7 +108,9 @@ async def main_page(request: Request):
                 <span>Цінник А6</span>
             </label>
             
-            <div id="reader"></div>
+            <div id="reader">
+                <div id="zoomIndicator" class="zoom-indicator">1.0x</div>
+            </div>
             
             <button id="torchBtn" class="btn-torch" onclick="toggleTorch()">🔦 Увімкнути ліхтарик</button>
 
@@ -179,6 +183,45 @@ async def main_page(request: Request):
             let html5QrCode = null;
             let isScanningLocked = false;
             let torchOn = false;
+            let currentZoom = 1;
+            let minZoom = 1;
+            let maxZoom = 5;
+            let zoomStep = 0.1;
+            let initialPinchDistance = null;
+
+            async function updateZoom(newZoom) {
+                if (!html5QrCode) return;
+                try {
+                    currentZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
+                    await html5QrCode.applyVideoConstraints({
+                        advanced: [{ zoom: currentZoom }]
+                    });
+                    const indicator = document.getElementById('zoomIndicator');
+                    indicator.innerText = currentZoom.toFixed(1) + 'x';
+                    indicator.style.display = 'block';
+                    clearTimeout(window.zoomTimeout);
+                    window.zoomTimeout = setTimeout(() => {
+                        indicator.style.display = 'none';
+                    }, 1500);
+                } catch (err) {}
+            }
+
+            async function initZoomCapabilities() {
+                try {
+                    const track = html5QrCode.getRunningTrack();
+                    if (track && track.getCapabilities) {
+                        const capabilities = track.getCapabilities();
+                        if (capabilities.zoom) {
+                            minZoom = capabilities.zoom.min || 1;
+                            maxZoom = capabilities.zoom.max || 5;
+                            const settings = track.getSettings();
+                            if (settings.zoom) {
+                                currentZoom = settings.zoom;
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
 
             async function toggleTorch() {
                 if (!html5QrCode) return;
@@ -300,9 +343,42 @@ async def main_page(request: Request):
                 .then(() => {
                     document.getElementById('status').innerText = "Наведіть камеру на штрихкод...";
                     document.getElementById('torchBtn').style.display = 'block';
+                    initZoomCapabilities();
                 }).catch(err => {
                     document.getElementById('status').style.color = "red";
                     document.getElementById('status').innerText = "Немає доступу до камери.";
+                });
+
+                const readerElement = document.getElementById('reader');
+
+                readerElement.addEventListener('touchstart', (e) => {
+                    if (e.touches.length === 2) {
+                        initialPinchDistance = Math.hypot(
+                            e.touches[0].clientX - e.touches[1].clientX,
+                            e.touches[0].clientY - e.touches[1].clientY
+                        );
+                    }
+                });
+
+                readerElement.addEventListener('touchmove', (e) => {
+                    if (e.touches.length === 2 && initialPinchDistance !== null) {
+                        const currentDistance = Math.hypot(
+                            e.touches[0].clientX - e.touches[1].clientX,
+                            e.touches[0].clientY - e.touches[1].clientY
+                        );
+                        const diff = currentDistance - initialPinchDistance;
+                        if (Math.abs(diff > 10)) {
+                            const newZoom = currentZoom + (diff > 0 ? zoomStep : -zoomStep);
+                            updateZoom(newZoom);
+                            initialPinchDistance = currentDistance;
+                        }
+                    }
+                });
+
+                readerElement.addEventListener('touchend', (e) => {
+                    if (e.touches.length < 2) {
+                        initialPinchDistance = null;
+                    }
                 });
             });
         </script>
@@ -611,7 +687,6 @@ async def main_page(request: Request):
                 const result = await response.json();
 
                 if (result.success) {
-                    // Очищаємо підсвічування скопійованих для цього списку
                     if (cachedData[type]) {
                         cachedData[type].forEach(c => copiedCodes.delete(c));
                         localStorage.setItem('copiedCodes', JSON.stringify(Array.from(copiedCodes)));
@@ -628,7 +703,6 @@ async def main_page(request: Request):
                 const result = await response.json();
 
                 if (result.success) {
-                    // Очищаємо всі скопійовані коди при повному очищенні історії
                     copiedCodes.clear();
                     localStorage.removeItem('copiedCodes');
                     loadData();
