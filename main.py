@@ -611,6 +611,11 @@ async def main_page(request: Request):
                 const result = await response.json();
 
                 if (result.success) {
+                    // Очищаємо підсвічування скопійованих для цього списку
+                    if (cachedData[type]) {
+                        cachedData[type].forEach(c => copiedCodes.delete(c));
+                        localStorage.setItem('copiedCodes', JSON.stringify(Array.from(copiedCodes)));
+                    }
                     loadData();
                     showToast("Список успішно очищено!");
                 } else {
@@ -623,6 +628,9 @@ async def main_page(request: Request):
                 const result = await response.json();
 
                 if (result.success) {
+                    // Очищаємо всі скопійовані коди при повному очищенні історії
+                    copiedCodes.clear();
+                    localStorage.removeItem('copiedCodes');
                     loadData();
                     showToast("Історію успішно очищено!");
                 } else {
